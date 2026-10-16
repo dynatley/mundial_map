@@ -4,7 +4,6 @@ function iniciarFronterasUnmined(instanciaUnmined) {
   // =========================================================================
   
   // 1. OPCIONAL: Asigna aquí un color fijo a jugadores específicos.
-  // Escribe el nombre del jugador entre comillas y su color en formato HEX (#RRGGBB).
   const COLORES_PERSONALIZADOS = {
     "Dynatley": "#a11600",
     "Moises00813672": "#353839",
@@ -15,8 +14,6 @@ function iniciarFronterasUnmined(instanciaUnmined) {
   };
 
   // 2. PALETA AUTOMÁTICA DE ALTO CONTRASTE:
-  // Si un jugador no está en la lista de arriba, tomará automáticamente uno de estos
-  // colores en orden (sin repetir), diseñados para distinguirse perfectamente en el mapa.
   const PALETA_ALTO_CONTRASTE = [
     "#00E5FF", // 1. Cian eléctrico
     "#FF9100", // 2. Naranja intenso
@@ -38,12 +35,25 @@ function iniciarFronterasUnmined(instanciaUnmined) {
   // =========================================================================
 
   const olMap = instanciaUnmined && (instanciaUnmined.olMap || instanciaUnmined.map || window.olMap);
-  if (!olMap || typeof territoriosData === "undefined") {
+  if (!olMap || !olMap.getView()) {
+    console.warn("Esperando a que uNmINeD cargue completamente...");
+    return false;
+  }
+
+  // Si territoriosData.js no cargó o quedó cortado al copiarlo, mostramos un aviso en pantalla
+  if (typeof territoriosData === "undefined") {
+    console.error("No se encontró territoriosData. Verifica que territoriosData.js esté bien copiado y termine en };");
+    if (!document.getElementById("avisoErrorDatos")) {
+      const aviso = document.createElement("div");
+      aviso.id = "avisoErrorDatos";
+      aviso.style.cssText = "position:absolute; top:12px; right:12px; z-index:10000; background:rgba(180,20,20,0.95); color:#fff; padding:10px 14px; border-radius:8px; font-family:sans-serif; font-size:12px; border:1px solid #ff8888; max-width:260px;";
+      aviso.innerHTML = "<b>⚠️ Error en territoriosData.js</b><br>El archivo de datos está vacío o se cortó al copiarlo (revisa que termine con <code>};</code>).";
+      document.body.appendChild(aviso);
+    }
     return false;
   }
 
   if (window._fronterasCargadas) return true;
-  window._fronterasCargadas = true;
 
   // Detectamos cómo transforma uNmINeD las coordenadas (X, Z) de Minecraft al mapa
   const dataProj = instanciaUnmined.dataProjection;
@@ -69,7 +79,6 @@ function iniciarFronterasUnmined(instanciaUnmined) {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
-  // Mapa normalizado para buscar colores personalizados sin importar mayúsculas/minúsculas
   const personalizadosNormalizados = {};
   Object.keys(COLORES_PERSONALIZADOS).forEach(k => {
     personalizadosNormalizados[k.trim().toLowerCase()] = COLORES_PERSONALIZADOS[k].trim();
@@ -82,13 +91,11 @@ function iniciarFronterasUnmined(instanciaUnmined) {
     const str = String(nombre || "Imperio").trim();
     const keyLower = str.toLowerCase();
 
-    // Si tiene un color personalizado, usamos ese
     if (personalizadosNormalizados[keyLower]) {
       mapaColoresJugadores[str] = personalizadosNormalizados[keyLower];
       return hexToRgba(personalizadosNormalizados[keyLower], alpha);
     }
 
-    // Si aún no tiene color asignado, le damos el siguiente disponible de la paleta
     if (!mapaColoresJugadores[str]) {
       const usadosManual = Object.values(COLORES_PERSONALIZADOS).map(c => c.trim().toUpperCase());
       let colorElegido = PALETA_ALTO_CONTRASTE[indicePaleta % PALETA_ALTO_CONTRASTE.length];
@@ -130,7 +137,7 @@ function iniciarFronterasUnmined(instanciaUnmined) {
     if (cap.ownerName) colorPorImperio(cap.ownerName, 1);
   });
 
-  // 1. CAPITALES (De cerca muestran todo; de lejos solo muestran el nombre de la capital)
+  // 1. CAPITALES (De cerca muestran todo; al alejarse muestran solo el nombre de la capital)
   (territoriosData.capitales || []).forEach(cap => {
     if (cap.dimension && cap.dimension !== "minecraft:overworld") return;
     const r = Number(cap.radio) || 128;
@@ -139,4 +146,173 @@ function iniciarFronterasUnmined(instanciaUnmined) {
     });
 
     const strokeCap = new ol.style.Stroke({ color: colorPorImperio(cap.ownerName, 1), width: 3.5 });
-    const fillCap = new ol.style.Fill({ color: colorPorImperio(cap.ownerName, 0.30)
+    const fillCap = new ol.style.Fill({ color: colorPorImperio(cap.ownerName, 0.30) });
+
+    const estiloCapCerca = new ol.style.Style({
+      stroke: strokeCap,
+      fill: fillCap,
+      text: new ol.style.Text({
+        text: `👑 ${cap.nombre}\nImperio de ${cap.ownerName}${obtenerNombresAliados(cap.ownerId)}`,
+        font: "bold 13px sans-serif",
+        fill: new ol.style.Fill({ color: "#ffd700" }),
+        stroke: new ol.style.Stroke({ color: "#000000", width: 3.5 }),
+        overflow: true
+      }),
+      zIndex: 20
+    });
+
+    const estiloCapLejos = new ol.style.Style({
+      stroke: strokeCap,
+      fill: fillCap,
+      text: new ol.style.Text({
+        text: `👑 ${cap.nombre}`,
+        font: "bold 12px sans-serif",
+        fill: new ol.style.Fill({ color: "#ffd700" }),
+        stroke: new ol.style.Stroke({ color: "#000000", width: 3.5 }),
+        overflow: true
+      }),
+      zIndex: 20
+    });
+
+    feat.setStyle(function(feature, resolution) {
+      const extent = feature.getGeometry().getExtent();
+      const anchoCuadradoEnPantalla = Math.abs(extent[2] - extent[0]) / resolution;
+      return anchoCuadradoEnPantalla >= 110 ? estiloCapCerca : estiloCapLejos;
+    });
+
+    features.push(feat);
+  });
+
+  // 2. AVANZADAS (Siempre muestran su cuadrado, pero ocultan el nombre al alejar el zoom)
+  (territoriosData.avanzadas || []).forEach(av => {
+    if (av.dimension && av.dimension !== "minecraft:overworld") return;
+    const r = Number(av.radio) || 50;
+    const enGuerra = av.estado && av.estado !== "paz";
+    const feat = new ol.Feature({
+      geometry: new ol.geom.Polygon(crearCuadradoUnmined(Number(av.x), Number(av.z), r))
+    });
+    const icono = enGuerra ? "⚔️ [EN CONFLICTO] " : (av.escudo ? "🛡️ " : "🚩 ");
+
+    const strokeAv = new ol.style.Stroke({
+      color: enGuerra ? "#ff0000" : colorPorImperio(av.ownerName, 0.95),
+      width: enGuerra ? 3 : 2.2,
+      lineDash: enGuerra ? [8, 6] : undefined
+    });
+
+    const fillAv = new ol.style.Fill({
+      color: enGuerra ? "rgba(255, 0, 0, 0.40)" : colorPorImperio(av.ownerName, 0.22)
+    });
+
+    const estiloConTexto = new ol.style.Style({
+      stroke: strokeAv,
+      fill: fillAv,
+      text: new ol.style.Text({
+        text: `${icono}${av.nombre} (Nv.${av.nivel || 1})\nDueño: ${av.ownerName}`,
+        font: "bold 12px sans-serif",
+        fill: new ol.style.Fill({ color: "#ffffff" }),
+        stroke: new ol.style.Stroke({ color: "#000000", width: 3 }),
+        overflow: true
+      }),
+      zIndex: 10
+    });
+
+    const estiloSinTexto = new ol.style.Style({
+      stroke: strokeAv,
+      fill: fillAv,
+      zIndex: 10
+    });
+
+    feat.setStyle(function(feature, resolution) {
+      const extent = feature.getGeometry().getExtent();
+      const anchoCuadradoEnPantalla = Math.abs(extent[2] - extent[0]) / resolution;
+      return anchoCuadradoEnPantalla >= 60 ? estiloConTexto : estiloSinTexto;
+    });
+
+    features.push(feat);
+  });
+
+  const vectorSource = new ol.source.Vector({ features: features });
+  const capaFronteras = new ol.layer.Vector({
+    source: vectorSource,
+    zIndex: 9999
+  });
+
+  olMap.addLayer(capaFronteras);
+  window._fronterasCargadas = true;
+  console.log(`¡Capa de fronteras agregada con éxito! Se cargaron ${features.length} territorios.`);
+
+  // Generamos la lista visual de jugadores y sus colores para el panel
+  const itemsLeyenda = Object.keys(mapaColoresJugadores).map(jugador => {
+    const colorHex = mapaColoresJugadores[jugador];
+    return `
+      <div style="display:flex; align-items:center; gap:6px; font-size:12px;">
+        <span style="display:inline-block; width:12px; height:12px; border-radius:3px; background:${colorHex}; border:1px solid #fff; flex-shrink:0;"></span>
+        <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${jugador}</span>
+      </div>
+    `;
+  }).join("");
+
+  // PANEL FLOTANTE CON BOTÓN DE PLEGAR/DESPLEGAR LA PESTAÑA
+  const panel = document.createElement("div");
+  panel.style.cssText = "position:absolute; top:12px; right:12px; z-index:10000; background:rgba(20,20,20,0.92); color:#fff; padding:8px 12px; border-radius:8px; font-family:sans-serif; font-size:13px; border:1px solid #555; box-shadow:0 3px 10px rgba(0,0,0,0.5); display:flex; flex-direction:column; gap:8px; max-height:80vh;";
+  panel.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+      <label style="cursor:pointer; margin:0; display:flex; align-items:center; gap:6px; user-select:none;">
+        <input type="checkbox" id="chkFronteras" checked style="cursor:pointer;">
+        <span><b>👑 Capitales y Avanzadas (${features.length})</b></span>
+      </label>
+      <button id="btnMinimizarPanel" style="cursor:pointer; background:#333; color:#ddd; border:1px solid #666; border-radius:4px; padding:2px 7px; font-size:11px; font-weight:bold;">
+        ▲ Ocultar
+      </button>
+    </div>
+
+    <div id="cuerpoPanelFronteras" style="display:flex; flex-direction:column; gap:8px; overflow-y:auto;">
+      <div style="border-top:1px solid #444; padding-top:6px; display:flex; flex-direction:column; gap:4px; max-height:42vh; overflow-y:auto;">
+        <div style="font-size:11px; color:#aaa; margin-bottom:2px;"><b>Imperios / Jugadores:</b></div>
+        ${itemsLeyenda}
+      </div>
+      <button id="btnIrTerritorios" style="cursor:pointer; background:#2b6cb0; color:#fff; border:none; padding:6px 10px; border-radius:5px; font-weight:bold; font-size:12px; margin-top:2px;">
+        🎯 Enfocar todos los territorios
+      </button>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  document.getElementById("chkFronteras").addEventListener("change", (e) => {
+    capaFronteras.setVisible(e.target.checked);
+  });
+
+  // Hacer chiquita / expandir la pestaña de fronteras
+  let minimizado = false;
+  const cuerpoPanel = document.getElementById("cuerpoPanelFronteras");
+  const btnMinimizar = document.getElementById("btnMinimizarPanel");
+
+  btnMinimizar.addEventListener("click", () => {
+    minimizado = !minimizado;
+    if (minimizado) {
+      cuerpoPanel.style.display = "none";
+      btnMinimizar.textContent = "▼ Lista";
+    } else {
+      cuerpoPanel.style.display = "flex";
+      btnMinimizar.textContent = "▲ Ocultar";
+    }
+  });
+
+  document.getElementById("btnIrTerritorios").addEventListener("click", () => {
+    if (features.length > 0) {
+      const extent = vectorSource.getExtent();
+      olMap.getView().fit(extent, { padding: [50, 50, 50, 50], duration: 600 });
+    }
+  });
+
+  return true;
+}
+
+// Arranque seguro a los 500ms (con respaldo a los 1500ms para celulares lentos)
+setTimeout(() => {
+  if (typeof unmined !== "undefined") iniciarFronterasUnmined(unmined);
+}, 500);
+
+setTimeout(() => {
+  if (typeof unmined !== "undefined" && !window._fronterasCargadas) iniciarFronterasUnmined(unmined);
+}, 1500);
