@@ -38,8 +38,7 @@
 
 <body>
     <div id="map"></div>
-    <script type="text/javascript" src="territoriosData.js"></script>
-    <script type="text/javascript" src="fronteras.unmined.js"></script>
+
     <script type="text/javascript">
 
         document.title = UnminedMapProperties.worldName + " - " + document.title;
@@ -55,8 +54,6 @@
         const mapElement = document.getElementById('map');
         const unmined = new Unmined(mapElement, UnminedMapProperties, UnminedRegions);
 
-        // ---> AGREGA ESTA LÍNEA AQUÍ PARA ACTIVAR LAS FRONTERAS <---
-        iniciarFronterasUnmined(unmined);
 
     </script>
 </body>
